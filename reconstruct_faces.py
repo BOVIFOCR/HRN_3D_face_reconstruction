@@ -42,6 +42,24 @@ def search_save_inappropriate_files(files_paths, str_search='aaa', path_save_lis
     return inappropriate_found, num_inappropriate_found
 
 
+# Bernardo
+def get_parts_indices(sub_folders, divisions):
+    begin_div = []
+    end_div = []
+    div_size = int(len(sub_folders) / divisions)
+    remainder = int(len(sub_folders) % divisions)
+
+    for i in range(0, divisions):
+        begin_div.append(i*div_size)
+        end_div.append(i*div_size + div_size)
+    
+    end_div[-1] += remainder
+
+    # print('begin_div:', begin_div)
+    # print('end_div:', end_div)
+    # sys.exit(0)
+    return begin_div, end_div
+
 
 def run_hrn(args):
     params = [
@@ -57,7 +75,6 @@ def run_hrn(args):
     names = find_image_files(args.input_root)
     # print('names:', names)
     # print('len(names):', len(names))
-    # print('')
     # sys.exit(0)
 
     # Bernardo
@@ -76,9 +93,42 @@ def run_hrn(args):
 
     # print('predict', args.input_root)
 
+
+    begin_parts, end_parts = get_parts_indices(names, args.div)
+    names_part = names[begin_parts[args.part]:end_parts[args.part]]
+    print('begin_parts:', begin_parts, '    end_parts:', end_parts)
+    # sys.exit(0)
+
+
+    begin_index_str = 0
+    end_index_str = len(names_part)
+    if args.str_begin != '':
+        print('Searching str_begin \'' + args.str_begin + '\' ...  ')
+        for x, name in enumerate(names_part):
+            if args.str_begin in name:
+                begin_index_str = x
+                print('found at', begin_index_str)
+                break
+
+    if args.str_end != '':
+        print('Searching str_end \'' + args.str_end + '\' ...  ')
+        for x, name in enumerate(names_part):
+            if args.str_end in name:
+                end_index_str = x+1
+                print('found at', end_index_str)
+    
+    print('\n------------------------')
+    print(f'part {args.part}/{args.div}')
+    print('begin_index_str:', begin_index_str)
+    print('end_index_str:', end_index_str)
+    print('------------------------\n')
+    names_part = names_part[begin_index_str:end_index_str]
+    # sys.exit(0)
+
+
     start_idx = 0
     if args.find_substring != '':
-        for i, n in enumerate(names):
+        for i, n in enumerate(names_part):
             if args.find_substring in n:
                 start_idx = i
                 break
@@ -86,11 +136,11 @@ def run_hrn(args):
     # sys.exit(0)
 
 
-    # for ind, name in enumerate(tqdm(names)):              # original
-    # for ind, name in enumerate(tqdm(names[start_idx:])):  # Bernardo
-    for ind in range(start_idx, len(names)):                # Bernardo
-        name = names[ind]                                   # Bernardo
-        print(f'{ind}/{len(names)-1}')
+    # for ind, name in enumerate(tqdm(names_part)):              # original
+    # for ind, name in enumerate(tqdm(names_part[start_idx:])):  # Bernardo
+    for ind in range(start_idx, len(names_part)):                # Bernardo
+        name = names_part[ind]                                   # Bernardo
+        print(f'{ind}/{len(names_part)-1}')
         print('name:', name)
         # save_name = os.path.splitext(name)[0]                                         # original
         save_name = os.path.splitext(name)[0].replace(args.input_root, '').strip('/')   # Bernardo
@@ -156,11 +206,23 @@ if __name__ == '__main__':
                         help='directory for saving results')
     
     # Bernardo
+    parser.add_argument('-str_begin', default='', type=str, help='Substring to find and start processing')
+    parser.add_argument('-str_end', default='', type=str, help='Substring to find and stop processing')
+
+    # Bernardo
+    parser.add_argument('-div', default=1, type=int, help='How many parts to divide paths list (useful to paralelize process)')
+    parser.add_argument('-part', default=0, type=int, help='Specific part to process (works only if -div > 1)')
+
+    # Bernardo
     parser.add_argument('--find_substring', type=str, default='', help='directory for saving results')
     parser.add_argument('--no_face_align', action='store_true')
     parser.add_argument('--save_only_sampled', action='store_true')
     
     args = parser.parse_args()
+
+
+    assert args.part < args.div, f'Error, args.part ({args.part}) >= args.div ({args.div}). args.part must be less than args.div!'
+
 
     if args.input_type == 'multi_view':
         run_mvhrn(args)
