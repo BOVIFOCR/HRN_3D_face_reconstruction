@@ -140,7 +140,7 @@ def run_hrn(args):
     # for ind, name in enumerate(tqdm(names_part[start_idx:])):  # Bernardo
     for ind in range(start_idx, len(names_part)):                # Bernardo
         name = names_part[ind]                                   # Bernardo
-        print(f'{ind}/{len(names_part)-1}')
+        print(f'divs: {args.div}    part: {args.part}    ind: {ind}/{len(names_part)-1}')
         print('name:', name)
         # save_name = os.path.splitext(name)[0]                                         # original
         save_name = os.path.splitext(name)[0].replace(args.input_root, '').strip('/')   # Bernardo
