@@ -650,7 +650,7 @@ class Reconstructor():
             output['displacement_map'] = self.model.displacement_map
 
             if out_dir is not None:
-                if args.save_only_sampled:   # Bernardo
+                if hasattr(args, 'save_only_sampled') and args.save_only_sampled:   # Bernardo
                     results = self.model.save_results_only_sampled(out_dir, save_name)
                 else:
                     results = self.model.save_results(out_dir, save_name)
