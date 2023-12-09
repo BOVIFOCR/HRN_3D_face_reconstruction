@@ -206,12 +206,12 @@ if __name__ == '__main__':
                         help='directory for saving results')
     
     # Bernardo
-    parser.add_argument('-str_begin', default='', type=str, help='Substring to find and start processing')
-    parser.add_argument('-str_end', default='', type=str, help='Substring to find and stop processing')
+    parser.add_argument('--str_begin', default='', type=str, help='Substring to find and start processing')
+    parser.add_argument('--str_end', default='', type=str, help='Substring to find and stop processing')
 
     # Bernardo
-    parser.add_argument('-div', default=1, type=int, help='How many parts to divide paths list (useful to paralelize process)')
-    parser.add_argument('-part', default=0, type=int, help='Specific part to process (works only if -div > 1)')
+    parser.add_argument('--div', default=1, type=int, help='How many parts to divide paths list (useful to paralelize process)')
+    parser.add_argument('--part', default=0, type=int, help='Specific part to process (works only if -div > 1)')
 
     # Bernardo
     parser.add_argument('--find_substring', type=str, default='', help='directory for saving results')
