@@ -73,7 +73,7 @@ def run_hrn(args):
 
     # names = sorted([name for name in os.listdir(args.input_root) if '.jpg' in name or '.png' in name or '.jpeg' in name or '.PNG' in name or '.JPG' in name or '.JPEG' in name])
     print(f'\nSearching image files in \'{args.input_root}\'...')
-    names = find_image_files(args.input_root)
+    names = find_image_files(args.input_root) 
     # for i, name in enumerate(names):
     #     print(i, '- name:', name)
     # print('len(names):', len(names))
