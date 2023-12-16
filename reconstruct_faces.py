@@ -204,7 +204,7 @@ if __name__ == '__main__':
                         help='directory of input images')
     parser.add_argument('--output_root', type=str, default='./assets/examples/single_view_image_results',
                         help='directory for saving results')
-    
+
     # Bernardo
     parser.add_argument('-str_begin', default='', type=str, help='Substring to find and start processing')
     parser.add_argument('-str_end', default='', type=str, help='Substring to find and stop processing')
@@ -217,7 +217,8 @@ if __name__ == '__main__':
     parser.add_argument('--find_substring', type=str, default='', help='directory for saving results')
     parser.add_argument('--no_face_align', action='store_true')
     parser.add_argument('--save_only_sampled', action='store_true')
-    
+    parser.add_argument('--no_reconstruction', action='store_true')
+
     args = parser.parse_args()
 
 
