@@ -360,12 +360,12 @@ class ParametricFaceModel:
         if type(coeffs) == dict and 'id' in coeffs:
             return coeffs
 
-        id_coeffs = coeffs[:, :80]
-        exp_coeffs = coeffs[:, 80: 144]
+        id_coeffs = coeffs[:, :80]         # face identity
+        exp_coeffs = coeffs[:, 80: 144]    # face expression
         tex_coeffs = coeffs[:, 144: 224]
-        angles = coeffs[:, 224: 227]
+        angles = coeffs[:, 224: 227]       # face rotation
         gammas = coeffs[:, 227: 254]
-        translations = coeffs[:, 254:]
+        translations = coeffs[:, 254:]     # face translation
         return {
             'id': id_coeffs,
             'exp': exp_coeffs,
