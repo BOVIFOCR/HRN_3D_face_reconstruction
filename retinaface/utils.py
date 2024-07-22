@@ -40,6 +40,11 @@ def tensor_from_rgb_image(image: np.ndarray) -> torch.Tensor:
     return torch.from_numpy(image)
 
 
+def tensor_from_rgb_image_batch(image: np.ndarray) -> torch.Tensor:
+    image = np.transpose(image, (0, 3, 1, 2))
+    return torch.from_numpy(image)
+
+
 def vis_annotations(image: np.ndarray,
                     annotations: List[Dict[str, Any]]) -> np.ndarray:
     vis_image = image.copy()

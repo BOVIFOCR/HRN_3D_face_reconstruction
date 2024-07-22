@@ -336,6 +336,184 @@ class Reconstructor():
                 # print('save results', time.time() - t1)
 
         return output
+
+
+
+    def load_imgs_lmks_prepare_batch(self, imgs_paths, lmks_paths):
+        import albumentations as A
+        from retinaface.utils import tensor_from_rgb_image, pad_to_size, unpad_from_size
+
+        max_size = 512
+        self.transform = A.Compose(
+            [A.LongestMaxSize(max_size=max_size, p=1),
+             A.Normalize(p=1)])
+
+        imgs_orig_list = []
+        imgs_resize_list = []
+        imgs_originalshapes_list = []
+        pads_list = []
+        lmks_list = []
+        for img_path, lmk_path in zip(imgs_paths, lmks_paths):
+            img_bgr = cv2.imread(img_path)
+            image = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            imgs_orig_list.append(image)
+
+            transformed_image = self.transform(image=image)['image']
+            paded = pad_to_size(
+                target_size=(max_size, max_size),
+                image=transformed_image)
+            # pads = paded['pads']
+
+            imgs_originalshapes_list.append(image.shape)
+            pads_list.append(paded['pads'])
+            imgs_resize_list.append(paded['image'])
+
+            if os.path.isfile(lmk_path):
+                lmks_list.append(lmk_path)
+
+        img_orig_size, img_orig_dtype = imgs_orig_list[0].shape, imgs_orig_list[0].dtype
+        imgs_orig_batch = np.zeros((len(imgs_paths), img_orig_size[0], img_orig_size[1], img_orig_size[2]), dtype=img_orig_dtype)
+
+        img_resize_size, img_resize_dtype = imgs_resize_list[0].shape, imgs_resize_list[0].dtype
+        imgs_resize_batch = np.zeros((len(imgs_paths), img_resize_size[0], img_resize_size[1], img_resize_size[2]), dtype=img_resize_dtype)
+
+        for idx_img, (img_orig, img_resize) in enumerate(zip(imgs_orig_list, imgs_resize_list)):
+            imgs_resize_batch[idx_img] = img_resize
+            imgs_orig_batch[idx_img] = img_orig
+
+        return imgs_orig_batch, imgs_originalshapes_list, imgs_resize_batch, pads_list, lmks_list
+
+
+
+    def predict_base_batch(self, imgs_paths, lmks_paths, out_dir=None, save_name='', args=None):
+        imgs_orig_batch, imgs_originalshapes_list, imgs_resize_batch, pads_list, lmks_list = self.load_imgs_lmks_prepare_batch(imgs_paths, lmks_paths)
+
+        timestamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+        if save_name != '':
+            img_name = save_name
+        else:
+            img_name = 'face-reconstruction_' + timestamp
+
+        # img_ori = img.copy()
+        # if img.shape[0] > 2000 or img.shape[1] > 2000:
+        #     img, _ = resize_on_long_side(img, 1500)
+
+        # if out_dir is not None:
+        #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
+        #     cv2.imwrite(img_path, img)
+
+        # box, results = self.face_mark_model.infer(img)
+        box_batch, results_batch = self.face_mark_model.infer_batch(imgs_orig_batch, imgs_originalshapes_list, imgs_resize_batch, pads_list)
+        print('box_batch:', box_batch)
+        print('results_batch:', results_batch)
+        raise Exception('CONTINUE FROM HERE')
+
+        if results_batch is None or np.array(results_batch).shape[0] == 0:
+            return {}
+
+        # t1 = time.time()
+        # fatbgr = self.face_mark_model.fat_face(img, degree=0.005)
+        # print('-' * 50, 'fat face', time.time() - t1)
+        fatbgr = None
+
+        landmarks = []
+        results_batch = results_batch[0]
+        for idx in [74, 83, 54, 84, 90]:
+            landmarks.append([results_batch[idx][0], results_batch[idx][1]])
+        landmarks = np.array(landmarks)
+
+        landmarks = self.prepare_data(img, self.lm_sess, five_points=landmarks)
+
+        im_tensor, lm_tensor, im_hd_tensor, lm_hd_tensor, mask = self.read_data(img, landmarks, self.lm3d_std, image_res=512, img_fat=fatbgr)
+        # M = estimate_norm(lm_tensor.numpy()[0], im_tensor.shape[2])
+        # M_tensor = self.parse_label(M)[None, ...]
+        data = {
+            'imgs': im_tensor,
+            'imgs_hd': im_hd_tensor,
+            'lms': lm_tensor,
+            'lms_hd': lm_hd_tensor,
+            # 'M': M_tensor,
+            # 'msks': att_mask,
+            'img_name': img_name,
+            'face_mask': mask,
+        }
+        self.model.set_input_base(data)  # unpack data from data loader
+
+        output = self.model.predict_results_base()  # run inference
+
+        if out_dir is not None:
+            t1 = time.time()
+
+            if not args is None and args.save_only_sampled:
+                # save input face
+                input_face = output['input_face']
+                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+            else:
+                # save texture map
+                tex_map = (output['texture_map'][0] * 255.0).detach().cpu().numpy()[..., ::-1]
+                cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.jpg'), tex_map)
+
+                # t2 = time.time()
+                # # save mesh
+                # color_map = (output['color_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
+                # color_map = color_map[..., ::-1].clip(0, 255)
+                # face_mesh = {
+                #     'vertices': output['vertices'][0].detach().cpu().numpy(),
+                #     'faces': output['triangles'] + 1,
+                #     'UVs': output['UVs'],
+                #     'texture_map': color_map
+                # }
+                # write_obj2(os.path.join(out_dir, img_name + '.obj'), mesh=face_mesh)
+                # print('save mesh', time.time() - t2)
+
+                # save coefficients
+                coeffs = output['coeffs'].detach().cpu().numpy()  # (1, 257)
+                np.save(os.path.join(out_dir, img_name + '_coeffs'), coeffs)
+
+                # # save albedo map
+                # albedo_map = (output['albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
+                # albedo_map = albedo_map[..., ::-1]
+                # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.jpg'), albedo_map)
+
+                # save position map
+                position_map = output['position_map'].detach().cpu().numpy()  # (1, 3, h, w)
+                np.save(os.path.join(out_dir, img_name + '_position_map'), position_map)
+                position_map_vis = position_map.transpose(0, 2, 3, 1)[0, ..., ::-1]
+                position_map_vis = 255.0 * (position_map_vis - position_map_vis.min()) / (position_map_vis.max() - position_map_vis.min())
+                cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.jpg'), position_map_vis)
+
+                # save input face
+                input_face = output['input_face']
+                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+
+                # save pred face
+                pred_face = output['pred_face']
+                cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.jpg'), pred_face)
+
+                # save input face hd
+                input_face_hd = output['input_face_hd']
+                cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.jpg'), input_face_hd)
+
+                # save gt lms
+                gt_lm = output['gt_lm'].detach().cpu().numpy()  # (1, 68, 2)
+                np.save(os.path.join(out_dir, img_name + '_lmks'), gt_lm)
+
+                # save face mask
+                face_mask = (output['face_mask'][0, 0] * 255.0).detach().cpu().numpy()
+                cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.jpg'), face_mask)
+
+                # save tex valid mask
+                face_mask = (output['tex_valid_mask'][0, 0] * 255.0).detach().cpu().numpy()
+                cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.jpg'), face_mask)
+
+                # save de-retouched albedo map
+                de_retouched_albedo_map = (output['de_retouched_albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
+                de_retouched_albedo_map = de_retouched_albedo_map[..., ::-1]
+                cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.jpg'), de_retouched_albedo_map)
+
+                # print('save results', time.time() - t1)
+
+        return output
     
 
     def predict_base_no_reconstruction(self, img, out_dir=None, save_name='', args=None):
@@ -727,6 +905,56 @@ class Reconstructor():
                     output['hrn_output_vis'] = results['output_vis']
 
         return output
+
+
+    def make_lmks_paths(self, imgs_paths, dir_input, dir_lmks):
+        lmks_paths = []
+        for img_path in imgs_paths:
+            img_name, img_ext = os.path.splitext(img_path)
+            lmk_path = img_path.replace(dir_input, dir_lmks).replace(img_ext, '.json')
+            lmks_paths.append(lmk_path)
+        return lmks_paths
+
+
+    def predict_batch(self, args, imgs_paths, visualize=False, out_dir=None, save_name=''):
+        lmks_paths = self.make_lmks_paths(imgs_paths, args.input_root, args.input_lmks)
+
+        with torch.no_grad():
+            # output = self.predict_base(img)                                                           # original
+            output_batch = self.predict_base_batch(imgs_paths, lmks_paths, out_dir, save_name, args)    # Bernardo
+
+            print('output_batch:', output_batch)
+            sys.exit(0)
+
+            output_batch['input_img_for_tex'] = self.get_img_for_texture(output_batch['input_img'])  # original
+
+            hrn_input = {
+                'input_img': output_batch['input_img'],
+                'input_img_for_tex': output_batch['input_img_for_tex'],
+                'input_img_hd': output_batch['input_img_hd'],
+                'face_mask': output_batch['face_mask'],
+                'gt_lm': output_batch['gt_lm'],
+                'coeffs': output_batch['coeffs'],
+                'position_map': output_batch['position_map'],
+                'texture_map': output_batch['texture_map'],
+                'tex_valid_mask': output_batch['tex_valid_mask'],
+                'de_retouched_albedo_map': output_batch['de_retouched_albedo_map']
+            }
+
+            self.model.set_input_hrn(hrn_input)
+            self.model.get_edge_points_horizontal()
+
+            self.model.forward_hrn(visualize=visualize)
+
+            output_batch['deformation_map'] = self.model.deformation_map
+            output_batch['displacement_map'] = self.model.displacement_map
+
+            if out_dir is not None:
+                results = self.model.save_results(out_dir, save_name)
+                output_batch['hrn_output_vis'] = results['output_vis']
+
+        return output_batch
+
 
     def predict_multi_view(self, img_list, visualize=False, out_dir=None, save_name='test'):
         with torch.no_grad():

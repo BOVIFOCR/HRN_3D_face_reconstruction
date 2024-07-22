@@ -212,6 +212,163 @@ class LargeModelInfer:
         return boxes, landmarks
 
 
+    def infer_batch(self, rgb_batch_image, imgs_originalshapes_list, rgb_resize_batch_image, pads_list):
+        # 1. 检测出人脸矩形框
+        # rgb_image = img_bgr[:,:,::-1]
+        # rgb_image = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        # boxes = self.detector.predict(rgb_image)
+        results_batch = self.detector.predict_jsons_batch(rgb_resize_batch_image, imgs_originalshapes_list, pads_list)
+        # result_img = detector.draw(rgb_image, detect_results)
+        # cv2.imshow("detect result", result_img[...,::-1].astype(np.uint8))
+
+        boxes_batch, landmarks_batch, coords1_batch, coords2_batch = [], [], [], []
+        crop_img_batch = np.zeros((len(rgb_resize_batch_image), INPUT_SIZE, INPUT_SIZE, 3), dtype=np.float32)
+
+        for idx_result, (results, rgb_image) in enumerate(zip(results_batch, rgb_batch_image)):
+            boxes, landmarks = [], []
+            for anno in results:
+                if anno['score'] == -1:
+                    break
+                boxes.append({'x1': anno['bbox'][0], 'y1': anno['bbox'][1], 'x2': anno['bbox'][2], 'y2': anno['bbox'][3]})
+
+            boxes_batch.append(boxes)
+
+            for detect_result in boxes:
+                coords1 = {}
+
+                x1 = detect_result["x1"]
+                y1 = detect_result["y1"]
+                x2 = detect_result["x2"]
+                y2 = detect_result["y2"]
+
+                w = x2 - x1 + 1
+                h = y2 - y1 + 1
+
+                cx = (x2 + x1) / 2
+                cy = (y2 + y1) / 2
+
+                sz = max(h, w) * ENLARGE_RATIO   # 1st
+
+                x1 = cx - sz / 2
+                y1 = cy - sz / 2
+                trans_x1 = x1
+                trans_y1 = y1
+                x2 = x1 + sz
+                y2 = y1 + sz
+
+                height, width, _ = rgb_image.shape
+                dx = max(0, -x1)
+                dy = max(0, -y1)
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+
+                edx = max(0, x2 - width)
+                edy = max(0, y2 - height)
+                x2 = min(width, x2)
+                y2 = min(height, y2)
+
+                crop_img = rgb_image[int(y1):int(y2), int(x1):int(x2)]
+                if dx > 0 or dy > 0 or edx > 0 or edy > 0:
+                    crop_img = cv2.copyMakeBorder(crop_img, int(dy), int(edy), int(dx), int(edx), cv2.BORDER_CONSTANT, value=(103.94, 116.78, 123.68))
+                crop_img = cv2.resize(crop_img, (INPUT_SIZE, INPUT_SIZE))
+                crop_img_batch[idx_result] = crop_img
+                # cv2.imshow("crop resize", crop_img.astype(np.uint8))
+                # cv2.waitKey()
+
+                # base_lmks = LargeBaseLmkInfer.infer_img(crop_img, self.large_base_lmks_model, self.device=="cuda")
+                coords1['sz'] = sz
+                coords1['trans_x1'] = trans_x1
+                coords1['trans_y1'] = trans_y1
+                coords1_batch.append(coords1)
+
+        base_lmks_bach = LargeBaseLmkInfer.infer_img_batch(crop_img_batch, self.large_base_lmks_model, self.device=="cuda")
+
+
+        crop_img_batch = np.zeros((len(rgb_resize_batch_image), INPUT_SIZE, INPUT_SIZE, 3), dtype=np.float32)
+        for idx_base_lmk, (base_lmks, rgb_image, coords1) in enumerate(zip(base_lmks_bach, rgb_batch_image, coords1_batch)):
+            coords2 = {}
+
+            sz = coords1['sz']
+            trans_x1 = coords1['trans_x1']
+            trans_y1 = coords1['trans_y1']
+
+            inv_scale = sz / INPUT_SIZE   # 1st
+
+            affine_base_lmks = np.zeros((106, 2))
+
+            for idx in range(106):
+                affine_base_lmks[idx][0] = base_lmks[idx * 2 + 0] * inv_scale + trans_x1
+                affine_base_lmks[idx][1] = base_lmks[idx * 2 + 1] * inv_scale + trans_y1
+
+            # 利用affine_base_lmks重新求取包围盒
+            x1 = np.min(affine_base_lmks[:, 0])
+            y1 = np.min(affine_base_lmks[:, 1])
+            x2 = np.max(affine_base_lmks[:, 0])
+            y2 = np.max(affine_base_lmks[:, 1])
+
+            w = x2 - x1 + 1
+            h = y2 - y1 + 1
+
+            cx = (x2 + x1) / 2
+            cy = (y2 + y1) / 2
+
+            sz = max(h, w) * ENLARGE_RATIO   # 2nd
+
+            x1 = cx - sz / 2
+            y1 = cy - sz / 2
+            trans_x1 = x1
+            trans_y1 = y1
+            x2 = x1 + sz
+            y2 = y1 + sz
+
+            height, width, _ = rgb_image.shape
+
+            dx = max(0, -x1)
+            dy = max(0, -y1)
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+
+            edx = max(0, x2 - width)
+            edy = max(0, y2 - height)
+            x2 = min(width, x2)
+            y2 = min(height, y2)
+
+            crop_img = rgb_image[int(y1):int(y2), int(x1):int(x2)]
+            if dx > 0 or dy > 0 or edx > 0 or edy > 0:
+                crop_img = cv2.copyMakeBorder(crop_img, int(dy), int(edy), int(dx), int(edx), cv2.BORDER_CONSTANT,
+                                              value=(103.94, 116.78, 123.68))
+            crop_img = cv2.resize(crop_img, (INPUT_SIZE, INPUT_SIZE))
+            # cv2.imshow("crop resize", crop_img.astype(np.uint8))
+            # cv2.waitKey()
+
+            crop_img_batch[idx_base_lmk] = crop_img
+
+            coords2['sz'] = sz
+            coords2['trans_x1'] = trans_x1
+            coords2['trans_y1'] = trans_y1
+            coords2_batch.append(coords2)
+
+        base_lmks_bach = LargeBaseLmkInfer.infer_img_batch(crop_img_batch, self.large_base_lmks_model, self.device=="cuda")
+
+
+        for idx_base_lmk, (base_lmks, rgb_image, coords2) in enumerate(zip(base_lmks_bach, rgb_batch_image, coords2_batch)):
+            sz = coords2['sz']
+            trans_x1 = coords2['trans_x1']
+            trans_y1 = coords2['trans_y1']
+
+            inv_scale = sz / INPUT_SIZE   # 2nd
+
+            affine_base_lmks = np.zeros((106, 2))
+            for idx in range(106):
+                affine_base_lmks[idx][0] = base_lmks[idx * 2 + 0] * inv_scale + trans_x1
+                affine_base_lmks[idx][1] = base_lmks[idx * 2 + 1] * inv_scale + trans_y1
+
+            # landmarks.append(affine_base_lmks)
+            landmarks_batch.append(affine_base_lmks)
+
+        return boxes_batch, landmarks_batch
+
+
 
     def find_face_contour(self, image):
 
