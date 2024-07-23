@@ -162,7 +162,10 @@ def run_hrn(args):
 
         t1 = time.time()
         output_batch = reconstructor.predict_batch(args, names_batch, visualize=True)
-        print(f'save results: {time.time() - t1} sec')
+        # print('output_batch:', output_batch)
+        # print('output_batch.shape:', output_batch.shape)
+        
+        print(f'Elapsed time: {time.time() - t1} sec')
         print('----------------')
 
         '''
