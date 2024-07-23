@@ -339,6 +339,97 @@ class FaceReconModel(BaseModel):
 
         return output
 
+
+    def predict_results_base_batch(self):
+        self.facemodel_front.to(self.device)
+        # predict low-frequency coefficients
+        with torch.no_grad():
+            output_coeff = self.net_recon(self.input_img)
+
+            return output_coeff
+
+        '''
+        # 3DMM
+        face_vertex, face_albedo_map, face_color_map, landmark, face_vertex_noTrans, position_map = self.facemodel_front.compute_for_render(output_coeff)
+
+        # get texture map
+        texture_map = self.facemodel_front.get_texture_map(face_vertex, self.input_img_hd)
+
+        # de-retouch
+        texture_map_input_high = texture_map.permute(0, 3, 1, 2).detach()  # (1, 3, 256, 256)
+        texture_map_input_high = (texture_map_input_high - 0.5) * 2
+        de_retouched_face_albedo_map = self.de_retouching_module.run(face_albedo_map, texture_map_input_high)
+
+        # get valid texture mask to deal with occlusion
+        valid_mask = self.facemodel_front.get_texture_map(face_vertex, self.face_mask)  # (256, 256, 1)
+        valid_mask = valid_mask.permute(0, 3, 1, 2).detach()  # (1, 1, 256, 256)
+
+        # render
+        pred_mask, _, pred_face = self.renderer.render_uv_texture(face_vertex, self.facemodel_front.face_buf,
+                                                                     self.bfm_UVs.clone(), face_color_map)
+
+        input_img_numpy = 255. * (self.input_img).detach().cpu().permute(0, 2, 3, 1).numpy()
+        input_img_numpy = np.squeeze(input_img_numpy)
+        output_vis = pred_face * pred_mask + (1 - pred_mask) * self.input_img
+        output_vis_numpy_raw = 255. * output_vis.detach().cpu().permute(0, 2, 3, 1).numpy()
+        output_vis_numpy_raw = np.squeeze(output_vis_numpy_raw)
+        output_vis_numpy = np.concatenate((input_img_numpy, output_vis_numpy_raw), axis=-2)
+        output_vis = np.squeeze(output_vis_numpy)
+        output_vis = output_vis[..., ::-1]  # rgb->bgr
+        output_face_mask = pred_mask.detach().cpu().permute(0, 2, 3, 1).squeeze().numpy() * 255.0
+        output_vis = np.column_stack((output_vis, cv2.cvtColor(output_face_mask, cv2.COLOR_GRAY2BGR)))
+        output_input_vis = output_vis[:, :224]
+        output_pred_vis = output_vis[:, 224:448]
+
+        input_img_hd = 255. * (self.input_img_hd).detach().cpu().permute(0, 2, 3, 1).numpy()[..., ::-1]
+        input_img_hd = np.squeeze(input_img_hd)
+
+        # # get texture map by differentiable rendering
+        # UVs_tensor = self.bfm_UVs.clone()[None, ...]
+        # target_img = self.input_img_hd
+        # target_img = target_img.permute(0, 2, 3, 1)
+        # face_buf = self.facemodel_front.face_buf
+        # t1 = time.time()
+        # pred_mask, _, pred_face, texture_map, texture_mask = self.renderer_high_res.pred_texture(face_vertex, face_buf, UVs_tensor, target_img, tex_size=512)
+        # print('get texture map 2', time.time() - t1)
+
+        # from camera space to world space
+        recon_vertices = face_vertex  # [1, 35709, 3]
+        recon_vertices[..., -1] = 10 - recon_vertices[..., -1]
+
+        recon_shape = face_vertex_noTrans  # [1, 35709, 3]
+        recon_shape[..., -1] = 10 - recon_shape[..., -1]
+
+        tri = self.facemodel_front.face_buf
+
+        # output
+        output = {}
+        output['coeffs'] = output_coeff.detach()  # [B, 257]
+        output['vertices'] = recon_vertices.detach()  # [B, 35709, 3]
+        output['vertices_noTrans'] = recon_shape.detach()  # [B, 35709, 3]
+        output['triangles'] = tri.detach()  # [n_faces, 3], start from 0
+        output['UVs'] = self.bfm_UVs.detach()  # [35709, 2]
+        output['texture_map'] = texture_map.detach()  # [B, h, w, 3], RGB
+        output['albedo_map'] = face_albedo_map.detach()  # [B, 3, h, w]
+        output['color_map'] = face_color_map.detach()  # [B, 3, h, w]
+        output['position_map'] = position_map.detach()  # [B, 3, h, w]
+
+        output['input_face'] = output_input_vis
+        output['pred_face'] = output_pred_vis
+        output['input_face_hd'] = input_img_hd
+
+        output['input_img'] = self.input_img
+        output['input_img_hd'] = self.input_img_hd
+        output['gt_lm'] = self.gt_lm
+        output['face_mask'] = self.face_mask
+        output['tex_valid_mask'] = valid_mask
+
+        output['de_retouched_albedo_map'] = de_retouched_face_albedo_map.detach()  # [B, 3, h, w]
+
+        return output
+        '''
+
+
     def forward_hrn(self, visualize=False):
         self.facemodel_front.to(self.device)
         self.bfm_UVs = self.bfm_UVs

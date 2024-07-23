@@ -77,6 +77,50 @@ class Reconstructor():
             lm_hd = torch.tensor(lm_hd).unsqueeze(0)
         return im_lr, lm_lr, im_hd, lm_hd, mask_lr
 
+
+    def read_data_batch(self, img_batch, lm_batch, lm3d_std, to_tensor=True, image_res=1024, img_fat=None):
+        im_lr_batch = np.zeros((len(img_batch), 224, 224, 3), dtype=np.float32)
+        im_hd_batch = np.zeros((len(img_batch), 512, 512, 3), dtype=np.float32)
+        lm_lr_batch = np.zeros((len(img_batch), 68, 2), dtype=np.float32)
+        lm_hd_batch = np.zeros((len(img_batch), 68, 2), dtype=np.float32)
+        mask_lr_batch = np.zeros((len(img_batch), 224, 224), dtype=np.float32)
+
+        for idx_img, (img, lm) in enumerate(zip(img_batch, lm_batch)):
+            # to RGB
+            # im = PIL.Image.fromarray(img[..., ::-1])
+            im = PIL.Image.fromarray(img)
+            W, H = im.size
+            lm[:, -1] = H - 1 - lm[:, -1]
+            _, im_lr, lm_lr, _ = align_img(im, lm, lm3d_std)
+            _, im_hd, lm_hd, _ = align_img(im, lm, lm3d_std, target_size=image_res, rescale_factor=102. * image_res / 224)
+            if img_fat is not None:
+                assert img_fat.shape == img.shape
+                im_fat = PIL.Image.fromarray(img_fat[..., ::-1])
+                _, im_hd, _, _ = align_img(im_fat, lm, lm3d_std, target_size=image_res, rescale_factor=102. * image_res / 224)
+
+            mask_lr = self.face_sess.run(self.face_sess.graph.get_tensor_by_name('output_alpha:0'), feed_dict={'input_image:0': np.array(im_lr)})
+
+            im_lr_batch[idx_img] = np.array(im_lr)
+            im_hd_batch[idx_img] = np.array(im_hd)
+            lm_lr_batch[idx_img] = np.array(lm_lr)
+            lm_hd_batch[idx_img] = np.array(lm_hd)
+            mask_lr_batch[idx_img] = np.array(mask_lr)
+
+        # mask_lr_batch = self.face_sess.run(self.face_sess.graph.get_tensor_by_name('output_alpha:0'), feed_dict={'input_image:0': im_lr_batch})
+        # print('mask_lr_batch:', mask_lr_batch); sys.exit(0)
+
+        # im_hd = np.array(im_hd).astype(np.float32)
+        if to_tensor:
+            im_lr_batch = torch.tensor(im_lr_batch / 255., dtype=torch.float32).permute(0, 3, 1, 2)
+            im_hd_batch = torch.tensor(im_hd_batch / 255., dtype=torch.float32).permute(0, 3, 1, 2)
+            mask_lr_batch = torch.tensor(mask_lr_batch / 255., dtype=torch.float32)[:, None, :, :]
+            lm_lr_batch = torch.tensor(lm_lr_batch)
+            lm_hd_batch = torch.tensor(lm_hd_batch)
+
+        # return im_lr, lm_lr, im_hd, lm_hd, mask_lr
+        return im_lr_batch, lm_lr_batch, im_hd_batch, lm_hd_batch, mask_lr_batch
+
+
     def parse_label(self, label):
         return torch.tensor(np.array(label).astype(np.float32))
 
@@ -191,6 +235,114 @@ class Reconstructor():
             '''
 
         return landmark
+
+
+    def prepare_data_batch(self, img_batch, lm_sess, five_points_batch=None):
+        input_img_batch = torch.zeros((len(img_batch), 3, 224, 224), dtype=torch.float32)
+        scale_batch = [None] * len(img_batch)
+        bbox_batch = [None] * len(img_batch)
+
+        for idx_img, (img, five_points) in enumerate(zip(img_batch, five_points_batch)):
+            input_img, scale, bbox = align_for_lm(img, five_points)  # align for 68 landmark detection
+
+            # if scale == 0:
+            #     # return None
+            #     landmark_batch.append(None)
+
+            input_img = np.reshape(
+                input_img, [1, 224, 224, 3]).astype(np.float32)
+
+            input_img = torch.tensor(input_img, dtype=torch.float32).permute(0, 3, 1, 2)
+
+            input_img_batch[idx_img] = input_img
+            scale_batch[idx_img] = scale
+            bbox_batch[idx_img] = bbox
+
+        # landmark = lm_sess.get_landmarks_from_image(input_img)
+        landmark_batch = lm_sess.get_landmarks_from_batch(input_img_batch)
+
+        for idx_landmark, (landmark, scale, bbox) in enumerate(zip(landmark_batch, scale_batch, bbox_batch)):
+            if not landmark is None:
+                # landmark = landmark[0]
+                landmark = landmark[:, :2] / scale
+                landmark[:, 0] = landmark[:, 0] + bbox[0]
+                landmark[:, 1] = landmark[:, 1] + bbox[1]
+
+            else:
+                # 68 landmarks (Bernardo)
+                landmark = np.array([[  8.741072,  38.3125  ],
+                                    [ 11.5625,    48.89286 ],
+                                    [ 14.38393,   58.0625  ],
+                                    [ 19.32143,   66.52679 ],
+                                    [ 22.142857,  78.51786 ],
+                                    [ 27.785713,  89.09821 ],
+                                    [ 35.544643,  97.5625  ],
+                                    [ 44.008926, 106.73215 ],
+                                    [ 57.410713, 110.96429 ],
+                                    [ 69.40179,  105.32143 ],
+                                    [ 76.45536,   97.5625  ],
+                                    [ 82.80357,   89.09821 ],
+                                    [ 87.03571,   78.51786 ],
+                                    [ 89.85715,   67.9375  ],
+                                    [ 92.67857,   58.0625  ],
+                                    [ 94.08929,   47.482143],
+                                    [ 96.20536,   36.901787],
+                                    [ 20.732143,  38.3125  ],
+                                    [ 26.375,     35.491074],
+                                    [ 32.723213,  35.491074],
+                                    [ 39.776787,  38.3125  ],
+                                    [ 45.41964,   40.428574],
+                                    [ 67.99107,   40.428574],
+                                    [ 72.22321,   36.901787],
+                                    [ 77.86607,   34.080357],
+                                    [ 85.625,     34.080357],
+                                    [ 89.85715,   35.491074],
+                                    [ 56.,        55.241074],
+                                    [ 56.,        63.70536 ],
+                                    [ 56.,        71.46429 ],
+                                    [ 56.,        77.10715 ],
+                                    [ 48.946426,  77.10715 ],
+                                    [ 53.178574,  78.51786 ],
+                                    [ 57.410713,  79.92857 ],
+                                    [ 60.23214,   78.51786 ],
+                                    [ 65.16965,   77.10715 ],
+                                    [ 29.19643,   50.303574],
+                                    [ 34.13393,   48.89286 ],
+                                    [ 39.776787,  48.89286 ],
+                                    [ 44.008926,  51.714287],
+                                    [ 39.776787,  53.125   ],
+                                    [ 34.13393,   53.125   ],
+                                    [ 67.99107,   51.714287],
+                                    [ 72.22321,   48.89286 ],
+                                    [ 77.86607,   48.89286 ],
+                                    [ 82.80357,   50.303574],
+                                    [ 77.86607,   53.125   ],
+                                    [ 72.22321,   53.125   ],
+                                    [ 41.1875,    87.6875  ],
+                                    [ 45.41964,   87.6875  ],
+                                    [ 53.178574,  86.27679 ],
+                                    [ 57.410713,  86.27679 ],
+                                    [ 60.23214,   86.27679 ],
+                                    [ 67.99107,   86.27679 ],
+                                    [ 72.22321,   86.27679 ],
+                                    [ 67.99107,   93.33036 ],
+                                    [ 61.64286,   96.15179 ],
+                                    [ 57.410713,  97.5625  ],
+                                    [ 51.76786,   97.5625  ],
+                                    [ 46.83036,   93.33036 ],
+                                    [ 42.598213,  87.6875  ],
+                                    [ 51.76786,   89.09821 ],
+                                    [ 57.410713,  89.09821 ],
+                                    [ 61.64286,   89.09821 ],
+                                    [ 70.8125,    86.27679 ],
+                                    [ 61.64286,   91.91965 ],
+                                    [ 57.410713,  91.91965 ],
+                                    [ 51.76786,   91.91965 ]], dtype=float)
+
+            landmark_batch[idx_landmark] = landmark
+
+        return landmark_batch
+
 
     def get_img_for_texture(self, input_img_tensor):
         input_img = input_img_tensor.permute(0, 2, 3, 1).detach().cpu().numpy()[0] * 255.
@@ -404,9 +556,6 @@ class Reconstructor():
 
         # box, results = self.face_mark_model.infer(img)
         box_batch, results_batch = self.face_mark_model.infer_batch(imgs_orig_batch, imgs_originalshapes_list, imgs_resize_batch, pads_list)
-        print('box_batch:', box_batch)
-        print('results_batch:', results_batch)
-        raise Exception('CONTINUE FROM HERE')
 
         if results_batch is None or np.array(results_batch).shape[0] == 0:
             return {}
@@ -416,31 +565,41 @@ class Reconstructor():
         # print('-' * 50, 'fat face', time.time() - t1)
         fatbgr = None
 
-        landmarks = []
-        results_batch = results_batch[0]
-        for idx in [74, 83, 54, 84, 90]:
-            landmarks.append([results_batch[idx][0], results_batch[idx][1]])
-        landmarks = np.array(landmarks)
+        landmarks_batch = []
+        for idx_result, results in enumerate(results_batch):
+            landmarks = []
+            # results = results[0]
+            for idx in [74, 83, 54, 84, 90]:
+                landmarks.append([results[idx][0], results[idx][1]])
+            landmarks = np.array(landmarks)
+            landmarks_batch.append(landmarks)
 
-        landmarks = self.prepare_data(img, self.lm_sess, five_points=landmarks)
+        # landmarks = self.prepare_data_batch(img, self.lm_sess, five_points=landmarks)
+        landmarks_batch = self.prepare_data_batch(imgs_orig_batch, self.lm_sess, five_points_batch=landmarks_batch)
+        # print('landmarks_batch:', landmarks_batch)
+        # raise Exception('CONTINUE FROM HERE')
 
-        im_tensor, lm_tensor, im_hd_tensor, lm_hd_tensor, mask = self.read_data(img, landmarks, self.lm3d_std, image_res=512, img_fat=fatbgr)
+        # im_tensor, lm_tensor, im_hd_tensor, lm_hd_tensor, mask = self.read_data(img, landmarks, self.lm3d_std, image_res=512, img_fat=fatbgr)
+        im_tensor_batch, lm_tensor_batch, im_hd_tensor_batch, lm_hd_tensor_batch, mask_batch = self.read_data_batch(imgs_orig_batch, landmarks_batch, self.lm3d_std, image_res=512, img_fat=fatbgr)
         # M = estimate_norm(lm_tensor.numpy()[0], im_tensor.shape[2])
         # M_tensor = self.parse_label(M)[None, ...]
         data = {
-            'imgs': im_tensor,
-            'imgs_hd': im_hd_tensor,
-            'lms': lm_tensor,
-            'lms_hd': lm_hd_tensor,
+            'imgs': im_tensor_batch,
+            'imgs_hd': im_hd_tensor_batch,
+            'lms': lm_tensor_batch,
+            'lms_hd': lm_hd_tensor_batch,
             # 'M': M_tensor,
             # 'msks': att_mask,
-            'img_name': img_name,
-            'face_mask': mask,
+            # 'img_name': img_name_batch,
+            'face_mask': mask_batch,
         }
         self.model.set_input_base(data)  # unpack data from data loader
 
-        output = self.model.predict_results_base()  # run inference
+        output = self.model.predict_results_base_batch()  # run inference
 
+        return output
+
+        '''
         if out_dir is not None:
             t1 = time.time()
 
@@ -514,6 +673,7 @@ class Reconstructor():
                 # print('save results', time.time() - t1)
 
         return output
+        '''
     
 
     def predict_base_no_reconstruction(self, img, out_dir=None, save_name='', args=None):
@@ -923,9 +1083,9 @@ class Reconstructor():
             # output = self.predict_base(img)                                                           # original
             output_batch = self.predict_base_batch(imgs_paths, lmks_paths, out_dir, save_name, args)    # Bernardo
 
-            print('output_batch:', output_batch)
-            sys.exit(0)
+            return output_batch
 
+        '''
             output_batch['input_img_for_tex'] = self.get_img_for_texture(output_batch['input_img'])  # original
 
             hrn_input = {
@@ -954,6 +1114,7 @@ class Reconstructor():
                 output_batch['hrn_output_vis'] = results['output_vis']
 
         return output_batch
+        '''
 
 
     def predict_multi_view(self, img_list, visualize=False, out_dir=None, save_name='test'):
