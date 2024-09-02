@@ -220,6 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_face_align', action='store_true')
     parser.add_argument('--save_only_sampled', action='store_true')
     parser.add_argument('--no_reconstruction', action='store_true')
+    parser.add_argument('--save_only_bfm_coeff', action='store_true')
 
     args = parser.parse_args()
 

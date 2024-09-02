@@ -340,6 +340,19 @@ class FaceReconModel(BaseModel):
         return output
 
 
+    def predict_results_base_save_only_bfm_coeff(self):
+        self.facemodel_front.to(self.device)
+        # predict low-frequency coefficients
+        with torch.no_grad():
+            output_coeff = self.net_recon(self.input_img)
+
+        # output
+        output = {}
+        output['coeffs'] = output_coeff.detach()  # [B, 257]
+
+        return output
+
+
     def predict_results_base_batch(self):
         self.facemodel_front.to(self.device)
         # predict low-frequency coefficients

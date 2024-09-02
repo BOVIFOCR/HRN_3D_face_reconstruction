@@ -125,6 +125,8 @@ def align_for_lm(img, five_points):
     bbox = BBRegression(five_points, params)
     assert(bbox[2] != 0)
     bbox = np.round(bbox).astype(np.int32)
+    bbox[bbox < 0] = 0
+    bbox[bbox >= img.shape[0]] = img.shape[0]-1
     crop_img, scale = crop(img, bbox)
     return crop_img, scale, bbox
 

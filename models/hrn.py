@@ -491,6 +491,69 @@ class Reconstructor():
 
 
 
+    def predict_base_save_only_bfm_coeff(self, img, out_dir=None, save_name='', args=None):
+
+        timestamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+        if save_name != '':
+            img_name = save_name
+        else:
+            img_name = 'face-reconstruction_' + timestamp
+
+        # img_ori = img.copy()
+        if img.shape[0] > 2000 or img.shape[1] > 2000:
+            img, _ = resize_on_long_side(img, 1500)
+
+        # if out_dir is not None:
+        #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
+        #     cv2.imwrite(img_path, img)
+
+        box, results = self.face_mark_model.infer(img)
+
+        if results is None or np.array(results).shape[0] == 0:
+            return {}
+
+        # t1 = time.time()
+        # fatbgr = self.face_mark_model.fat_face(img, degree=0.005)
+        # print('-' * 50, 'fat face', time.time() - t1)
+        fatbgr = None
+
+        landmarks = []
+        results = results[0]
+        for idx in [74, 83, 54, 84, 90]:
+            landmarks.append([results[idx][0], results[idx][1]])
+        landmarks = np.array(landmarks)
+
+        landmarks = self.prepare_data(img, self.lm_sess, five_points=landmarks)
+
+        im_tensor, lm_tensor, im_hd_tensor, lm_hd_tensor, mask = self.read_data(img, landmarks, self.lm3d_std, image_res=512, img_fat=fatbgr)
+        # M = estimate_norm(lm_tensor.numpy()[0], im_tensor.shape[2])
+        # M_tensor = self.parse_label(M)[None, ...]
+        data = {
+            'imgs': im_tensor,
+            'imgs_hd': im_hd_tensor,
+            'lms': lm_tensor,
+            'lms_hd': lm_hd_tensor,
+            # 'M': M_tensor,
+            # 'msks': att_mask,
+            'img_name': img_name,
+            'face_mask': mask,
+        }
+        self.model.set_input_base(data)  # unpack data from data loader
+
+        # output = self.model.predict_results_base()  # run inference
+        output = self.model.predict_results_base_save_only_bfm_coeff()  # run inference
+
+        if out_dir is not None:
+            t1 = time.time()
+
+            # save coefficients
+            coeffs = output['coeffs'].detach().cpu().numpy()  # (1, 257)
+            np.save(os.path.join(out_dir, img_name + '_coeffs'), coeffs)
+
+        return output
+
+
+
     def load_imgs_lmks_prepare_batch(self, imgs_paths, lmks_paths):
         import albumentations as A
         from retinaface.utils import tensor_from_rgb_image, pad_to_size, unpad_from_size
@@ -1023,6 +1086,9 @@ class Reconstructor():
             # Bernardo
             if args.no_reconstruction:
                 output = self.predict_base_no_reconstruction(img, out_dir, save_name)    # Bernardo
+
+            elif args.save_only_bfm_coeff:
+                output = self.predict_base_save_only_bfm_coeff(img, out_dir, save_name)    # Bernardo
 
             else:
                 if not hasattr(args, 'no_face_align') or not args.no_face_align:
