@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+import pickle
 from PIL import Image
 import os, sys
 from facelandmark.large_model_infer import LargeModelInfer
@@ -18,6 +19,11 @@ import tensorflow as tf
 if tf.__version__ >= '2.0':
     tf = tf.compat.v1
     tf.disable_eager_execution()
+
+
+def save_object_to_disk(file_path, obj):
+    with open(file_path, 'wb') as f:
+        pickle.dump(obj, f)
 
 
 class Reconstructor():
@@ -373,11 +379,13 @@ class Reconstructor():
             img_name = 'face-reconstruction_' + timestamp
 
         # img_ori = img.copy()
+        scale = 1.0
         if img.shape[0] > 2000 or img.shape[1] > 2000:
-            img, _ = resize_on_long_side(img, 1500)
+            img, scale = resize_on_long_side(img, 1500)
+        scale = np.array(scale)
 
         # if out_dir is not None:
-        #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
+        #     img_path = os.path.join(out_dir, img_name + '_img.png')
         #     cv2.imwrite(img_path, img)
 
         box, results = self.face_mark_model.infer(img)
@@ -415,17 +423,22 @@ class Reconstructor():
 
         output = self.model.predict_results_base()  # run inference
 
+        output['scale']        = scale
+        output['landmarks']    = landmarks
+        output['lm_tensor']    = lm_tensor
+        output['lm_hd_tensor'] = lm_hd_tensor
+
         if out_dir is not None:
             t1 = time.time()
 
             if not args is None and args.save_only_sampled:
                 # save input face
                 input_face = output['input_face']
-                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.png'), input_face)
             else:
                 # save texture map
                 tex_map = (output['texture_map'][0] * 255.0).detach().cpu().numpy()[..., ::-1]
-                cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.jpg'), tex_map)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.png'), tex_map)
 
                 # t2 = time.time()
                 # # save mesh
@@ -447,26 +460,26 @@ class Reconstructor():
                 # # save albedo map
                 # albedo_map = (output['albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
                 # albedo_map = albedo_map[..., ::-1]
-                # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.jpg'), albedo_map)
+                # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.png'), albedo_map)
 
                 # save position map
                 position_map = output['position_map'].detach().cpu().numpy()  # (1, 3, h, w)
                 np.save(os.path.join(out_dir, img_name + '_position_map'), position_map)
                 position_map_vis = position_map.transpose(0, 2, 3, 1)[0, ..., ::-1]
                 position_map_vis = 255.0 * (position_map_vis - position_map_vis.min()) / (position_map_vis.max() - position_map_vis.min())
-                cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.jpg'), position_map_vis)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.png'), position_map_vis)
 
                 # save input face
                 input_face = output['input_face']
-                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.png'), input_face)
 
                 # save pred face
                 pred_face = output['pred_face']
-                cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.jpg'), pred_face)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.png'), pred_face)
 
                 # save input face hd
                 input_face_hd = output['input_face_hd']
-                cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.jpg'), input_face_hd)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.png'), input_face_hd)
 
                 # save gt lms
                 gt_lm = output['gt_lm'].detach().cpu().numpy()  # (1, 68, 2)
@@ -474,16 +487,25 @@ class Reconstructor():
 
                 # save face mask
                 face_mask = (output['face_mask'][0, 0] * 255.0).detach().cpu().numpy()
-                cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.jpg'), face_mask)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.png'), face_mask)
 
                 # save tex valid mask
                 face_mask = (output['tex_valid_mask'][0, 0] * 255.0).detach().cpu().numpy()
-                cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.jpg'), face_mask)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.png'), face_mask)
 
                 # save de-retouched albedo map
                 de_retouched_albedo_map = (output['de_retouched_albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
                 de_retouched_albedo_map = de_retouched_albedo_map[..., ::-1]
-                cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.jpg'), de_retouched_albedo_map)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.png'), de_retouched_albedo_map)
+
+                # Bernardo
+                np.save(os.path.join(out_dir, img_name + '_vertex_ids_pixels_map'), output['vertex_ids_pixels_map'])
+                save_object_to_disk(os.path.join(out_dir, img_name + '_pixel_coords_by_vertex_ids.pkl'), output['pixel_coords_by_vertex_ids'])
+
+                # Bernardo
+                np.save(os.path.join(out_dir, img_name + '_scale'), output['scale'])
+                np.save(os.path.join(out_dir, img_name + '_landmarks'), output['landmarks'])
+                
 
                 # print('save results', time.time() - t1)
 
@@ -504,7 +526,7 @@ class Reconstructor():
             img, _ = resize_on_long_side(img, 1500)
 
         # if out_dir is not None:
-        #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
+        #     img_path = os.path.join(out_dir, img_name + '_img.png')
         #     cv2.imwrite(img_path, img)
 
         box, results = self.face_mark_model.infer(img)
@@ -614,7 +636,7 @@ class Reconstructor():
         #     img, _ = resize_on_long_side(img, 1500)
 
         # if out_dir is not None:
-        #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
+        #     img_path = os.path.join(out_dir, img_name + '_img.png')
         #     cv2.imwrite(img_path, img)
 
         # box, results = self.face_mark_model.infer(img)
@@ -669,11 +691,11 @@ class Reconstructor():
             if not args is None and args.save_only_sampled:
                 # save input face
                 input_face = output['input_face']
-                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.png'), input_face)
             else:
                 # save texture map
                 tex_map = (output['texture_map'][0] * 255.0).detach().cpu().numpy()[..., ::-1]
-                cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.jpg'), tex_map)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.png'), tex_map)
 
                 # t2 = time.time()
                 # # save mesh
@@ -695,26 +717,26 @@ class Reconstructor():
                 # # save albedo map
                 # albedo_map = (output['albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
                 # albedo_map = albedo_map[..., ::-1]
-                # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.jpg'), albedo_map)
+                # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.png'), albedo_map)
 
                 # save position map
                 position_map = output['position_map'].detach().cpu().numpy()  # (1, 3, h, w)
                 np.save(os.path.join(out_dir, img_name + '_position_map'), position_map)
                 position_map_vis = position_map.transpose(0, 2, 3, 1)[0, ..., ::-1]
                 position_map_vis = 255.0 * (position_map_vis - position_map_vis.min()) / (position_map_vis.max() - position_map_vis.min())
-                cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.jpg'), position_map_vis)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.png'), position_map_vis)
 
                 # save input face
                 input_face = output['input_face']
-                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.png'), input_face)
 
                 # save pred face
                 pred_face = output['pred_face']
-                cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.jpg'), pred_face)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.png'), pred_face)
 
                 # save input face hd
                 input_face_hd = output['input_face_hd']
-                cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.jpg'), input_face_hd)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.png'), input_face_hd)
 
                 # save gt lms
                 gt_lm = output['gt_lm'].detach().cpu().numpy()  # (1, 68, 2)
@@ -722,16 +744,16 @@ class Reconstructor():
 
                 # save face mask
                 face_mask = (output['face_mask'][0, 0] * 255.0).detach().cpu().numpy()
-                cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.jpg'), face_mask)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.png'), face_mask)
 
                 # save tex valid mask
                 face_mask = (output['tex_valid_mask'][0, 0] * 255.0).detach().cpu().numpy()
-                cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.jpg'), face_mask)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.png'), face_mask)
 
                 # save de-retouched albedo map
                 de_retouched_albedo_map = (output['de_retouched_albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
                 de_retouched_albedo_map = de_retouched_albedo_map[..., ::-1]
-                cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.jpg'), de_retouched_albedo_map)
+                cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.png'), de_retouched_albedo_map)
 
                 # print('save results', time.time() - t1)
 
@@ -752,7 +774,7 @@ class Reconstructor():
             img, _ = resize_on_long_side(img, 1500)
 
         # if out_dir is not None:
-        #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
+        #     img_path = os.path.join(out_dir, img_name + '_img.png')
         #     cv2.imwrite(img_path, img)
 
         box, results = self.face_mark_model.infer(img)
@@ -789,7 +811,7 @@ class Reconstructor():
 
         input_img_numpy = 255. * (im_tensor).detach().cpu().permute(0, 2, 3, 1).numpy()
         input_img_numpy = np.squeeze(input_img_numpy)
-        path_input_img = os.path.join(out_dir, img_name + '_01_input_face.jpg')
+        path_input_img = os.path.join(out_dir, img_name + '_01_input_face.png')
         print(f'Saving \'{path_input_img}\'')
         cv2.imwrite(path_input_img, cv2.cvtColor(input_img_numpy, cv2.COLOR_BGR2RGB))
 
@@ -810,7 +832,7 @@ class Reconstructor():
             img, _ = resize_on_long_side(img, 1500)
 
         # if out_dir is not None:
-        #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
+        #     img_path = os.path.join(out_dir, img_name + '_img.png')
         #     cv2.imwrite(img_path, img)
 
         '''
@@ -870,7 +892,7 @@ class Reconstructor():
 
             # save texture map
             tex_map = (output['texture_map'][0] * 255.0).detach().cpu().numpy()[..., ::-1]
-            cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.jpg'), tex_map)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.png'), tex_map)
 
             # t2 = time.time()
             # # save mesh
@@ -892,26 +914,26 @@ class Reconstructor():
             # # save albedo map
             # albedo_map = (output['albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
             # albedo_map = albedo_map[..., ::-1]
-            # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.jpg'), albedo_map)
+            # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.png'), albedo_map)
 
             # save position map
             position_map = output['position_map'].detach().cpu().numpy()  # (1, 3, h, w)
             np.save(os.path.join(out_dir, img_name + '_position_map'), position_map)
             position_map_vis = position_map.transpose(0, 2, 3, 1)[0, ..., ::-1]
             position_map_vis = 255.0 * (position_map_vis - position_map_vis.min()) / (position_map_vis.max() - position_map_vis.min())
-            cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.jpg'), position_map_vis)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.png'), position_map_vis)
 
             # save input face
             input_face = output['input_face']
-            cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.png'), input_face)
 
             # save pred face
             pred_face = output['pred_face']
-            cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.jpg'), pred_face)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.png'), pred_face)
 
             # save input face hd
             input_face_hd = output['input_face_hd']
-            cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.jpg'), input_face_hd)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.png'), input_face_hd)
 
             # save gt lms
             gt_lm = output['gt_lm'].detach().cpu().numpy()  # (1, 68, 2)
@@ -919,16 +941,16 @@ class Reconstructor():
 
             # save face mask
             face_mask = (output['face_mask'][0, 0] * 255.0).detach().cpu().numpy()
-            cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.jpg'), face_mask)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.png'), face_mask)
 
             # save tex valid mask
             face_mask = (output['tex_valid_mask'][0, 0] * 255.0).detach().cpu().numpy()
-            cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.jpg'), face_mask)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.png'), face_mask)
 
             # save de-retouched albedo map
             de_retouched_albedo_map = (output['de_retouched_albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
             de_retouched_albedo_map = de_retouched_albedo_map[..., ::-1]
-            cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.jpg'), de_retouched_albedo_map)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.png'), de_retouched_albedo_map)
 
             # print('save results', time.time() - t1)
 
@@ -949,7 +971,7 @@ class Reconstructor():
             img, _ = resize_on_long_side(img, 1500)
 
         # if out_dir is not None:
-        #     img_path = os.path.join(out_dir, img_name + '_img.jpg')
+        #     img_path = os.path.join(out_dir, img_name + '_img.png')
         #     cv2.imwrite(img_path, img)
 
         '''
@@ -1006,7 +1028,7 @@ class Reconstructor():
 
         # save input face
         input_face = output['input_face']
-        cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+        cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.png'), input_face)
 
         '''
         if out_dir is not None:
@@ -1014,7 +1036,7 @@ class Reconstructor():
 
             # save texture map
             tex_map = (output['texture_map'][0] * 255.0).detach().cpu().numpy()[..., ::-1]
-            cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.jpg'), tex_map)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_texOri.png'), tex_map)
 
             # t2 = time.time()
             # # save mesh
@@ -1036,26 +1058,26 @@ class Reconstructor():
             # # save albedo map
             # albedo_map = (output['albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
             # albedo_map = albedo_map[..., ::-1]
-            # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.jpg'), albedo_map)
+            # cv2.imwrite(os.path.join(out_dir, img_name + '_albedo_map.png'), albedo_map)
 
             # save position map
             position_map = output['position_map'].detach().cpu().numpy()  # (1, 3, h, w)
             np.save(os.path.join(out_dir, img_name + '_position_map'), position_map)
             position_map_vis = position_map.transpose(0, 2, 3, 1)[0, ..., ::-1]
             position_map_vis = 255.0 * (position_map_vis - position_map_vis.min()) / (position_map_vis.max() - position_map_vis.min())
-            cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.jpg'), position_map_vis)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_position_map_vis.png'), position_map_vis)
 
             # save input face
             input_face = output['input_face']
-            cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.jpg'), input_face)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_01_input_face.png'), input_face)
 
             # save pred face
             pred_face = output['pred_face']
-            cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.jpg'), pred_face)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_02_pred_face.png'), pred_face)
 
             # save input face hd
             input_face_hd = output['input_face_hd']
-            cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.jpg'), input_face_hd)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_03_input_face_hd.png'), input_face_hd)
 
             # save gt lms
             gt_lm = output['gt_lm'].detach().cpu().numpy()  # (1, 68, 2)
@@ -1063,16 +1085,16 @@ class Reconstructor():
 
             # save face mask
             face_mask = (output['face_mask'][0, 0] * 255.0).detach().cpu().numpy()
-            cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.jpg'), face_mask)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_face_mask.png'), face_mask)
 
             # save tex valid mask
             face_mask = (output['tex_valid_mask'][0, 0] * 255.0).detach().cpu().numpy()
-            cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.jpg'), face_mask)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_tex_valid_mask.png'), face_mask)
 
             # save de-retouched albedo map
             de_retouched_albedo_map = (output['de_retouched_albedo_map'].permute(0, 2, 3, 1)[0] * 255.0).detach().cpu().numpy()
             de_retouched_albedo_map = de_retouched_albedo_map[..., ::-1]
-            cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.jpg'), de_retouched_albedo_map)
+            cv2.imwrite(os.path.join(out_dir, img_name + '_de_retouched_albedo_map.png'), de_retouched_albedo_map)
 
             # print('save results', time.time() - t1)
         '''

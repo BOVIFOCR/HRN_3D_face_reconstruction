@@ -217,6 +217,97 @@ class MeshRenderer(nn.Module):
 
         return mask, depth, image
 
+
+    # Bernardo
+    def get_per_pixel_vertex_ID_map(self, vertex, tri, uv, uv_texture):
+        """
+        Return:
+            mask               -- torch.tensor, size (B, 1, H, W)
+            depth              -- torch.tensor, size (B, 1, H, W)
+            features(optional) -- torch.tensor, size (B, C, H, W)
+            vertex_ids         -- torch.tensor, size (B, H, W), each pixel's closest vertex ID
+
+        Parameters:
+            vertex       -- torch.tensor, size (B, N, 3)
+            tri          -- torch.tensor, size (M, 3), triangles
+            uv           -- torch.tensor, size (B, N, 2), UV mapping
+            uv_texture   -- torch.tensor, size (B, C, H, W, C), texture map
+        """
+        device = vertex.device
+        rsize = int(self.rasterize_size)
+        ndc_proj = self.ndc_proj.to(device)
+
+        if vertex.shape[-1] == 3:
+            vertex = torch.cat([vertex, torch.ones([*vertex.shape[:2], 1]).to(device)], dim=-1)
+            vertex[..., 1] = -vertex[..., 1]
+
+        vertex_ndc = vertex @ ndc_proj.t()
+
+        if self.glctx is None:
+            self.glctx = dr.RasterizeGLContext(device=device)
+
+        ranges = None
+        if isinstance(tri, List) or len(tri.shape) == 3:
+            vum = vertex_ndc.shape[1]
+            fnum = torch.tensor([f.shape[0] for f in tri]).unsqueeze(1).to(device)
+            fstartidx = torch.cumsum(fnum, dim=0) - fnum
+            ranges = torch.cat([fstartidx, fnum], axis=1).type(torch.int32).cpu()
+            for i in range(tri.shape[0]):
+                tri[i] = tri[i] + i * vum
+            vertex_ndc = torch.cat(vertex_ndc, dim=0)
+            tri = torch.cat(tri, dim=0)
+
+        tri = tri.type(torch.int32).contiguous()
+        rast_out, _ = dr.rasterize(self.glctx, vertex_ndc.contiguous(), tri, resolution=[rsize, rsize], ranges=ranges)
+
+        depth, _ = dr.interpolate(vertex.reshape([-1, 4])[..., 2].unsqueeze(1).contiguous(), rast_out, tri)
+        depth = depth.permute(0, 3, 1, 2)
+        mask = (rast_out[..., 3] > 0).float().unsqueeze(1)
+        depth = mask * depth
+
+        uv[..., -1] = 1.0 - uv[..., -1]
+
+        rast_out, rast_db = dr.rasterize(self.glctx, vertex_ndc.contiguous(), tri, resolution=[rsize, rsize], ranges=ranges)
+        interp_out, uv_da = dr.interpolate(uv, rast_out, tri, rast_db, diff_attrs='all')
+
+        uv_texture = uv_texture.permute(0, 2, 3, 1).contiguous()
+        img = dr.texture(uv_texture, interp_out, filter_mode='linear')
+        img = img * torch.clamp(rast_out[..., -1:], 0, 1)
+
+        image = img.permute(0, 3, 1, 2)
+
+        
+        # Bernardo
+        bary_coords = rast_out[..., 0:3]
+        tri_ids = rast_out[..., 3].long()
+        tri_ids = torch.clamp(tri_ids, min=0, max=tri.shape[0]-1)
+        tri_flat = tri[tri_ids]
+        max_idx = bary_coords.argmax(dim=-1)
+        vertex_ids = torch.gather(tri_flat, dim=-1, index=max_idx.unsqueeze(-1)).squeeze(-1)
+        vertex_ids[tri_ids == 0] = -1
+
+        # Bernardo
+        B, H, W, _ = tri_flat.shape
+        num_vertices = vertex.shape[1]
+        pixel_coords_by_vertex = [None for _ in range(num_vertices)]
+        max_weights = torch.full((num_vertices,), -1.0, device=device)
+        for y in range(H):
+            for x in range(W):
+                if mask[0, 0, y, x] == 0:
+                    continue
+                tri_vtx = tri_flat[0, y, x]
+                bary = bary_coords[0, y, x]
+                for i in range(3):
+                    v = tri_vtx[i].item()
+                    w = bary[i].item()
+                    if w > max_weights[v]:
+                        max_weights[v] = w
+                        pixel_coords_by_vertex[v] = (y, x)
+
+        return mask, depth, image, vertex_ids, pixel_coords_by_vertex
+
+
+
     def pred_texture(self, vertex, tri, uv, target_img, tex_size=1024):
         """
         Return:

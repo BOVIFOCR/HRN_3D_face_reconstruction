@@ -346,7 +346,7 @@ def write_obj(save_path, vertices, faces=None, UVs=None, faces_uv=None, normals=
 
     if save_mtl or texture_map is not None:
         if texture_map is not None:
-            cv2.imwrite(os.path.join(save_dir, save_name + '.jpg'), texture_map)
+            cv2.imwrite(os.path.join(save_dir, save_name + '.png'), texture_map)
         with open(os.path.join(save_dir, save_name + '.mtl'), 'w') as wf:
             wf.write('# Created by HRN\n')
             wf.write('newmtl material_0\n')
@@ -356,7 +356,7 @@ def write_obj(save_path, vertices, faces=None, UVs=None, faces_uv=None, normals=
             wf.write('Tr 0.000000\n')
             wf.write('illum 0\n')
             wf.write('Ns 0.000000\n')
-            wf.write('map_Kd {}\n'.format(save_name + '.jpg'))
+            wf.write('map_Kd {}\n'.format(save_name + '.png'))
 
     with open(save_path, 'w') as wf:
         if save_mtl or texture_map is not None:
@@ -485,7 +485,7 @@ def write_obj2(save_path, mesh):
 
     if 'texture_map' in mesh:
         cv2.imwrite(
-            os.path.join(save_dir, save_name + '.jpg'), mesh['texture_map'])
+            os.path.join(save_dir, save_name + '.png'), mesh['texture_map'])
 
         with open(os.path.join(save_dir, save_name + '.mtl'), 'w') as wf:
             wf.write('# Created by HRN\n')
@@ -496,7 +496,7 @@ def write_obj2(save_path, mesh):
             wf.write('Tr 0.000000\n')
             wf.write('illum 0\n')
             wf.write('Ns 0.000000\n')
-            wf.write('map_Kd {}\n'.format(save_name + '.jpg'))
+            wf.write('map_Kd {}\n'.format(save_name + '.png'))
 
     with open(save_path, 'w') as wf:
         if 'texture_map' in mesh:
@@ -739,7 +739,7 @@ def split_vis(img_path, target_dir=None):
     base_name = os.path.splitext(os.path.basename(img_path))[0]
     for i in range(n_split):
         img_i = img[:, i*h: (i+1)*h, :]
-        cv2.imwrite(os.path.join(target_dir, '{}_{:0>2d}.jpg'.format(base_name, i+1)), img_i)
+        cv2.imwrite(os.path.join(target_dir, '{}_{:0>2d}.png'.format(base_name, i+1)), img_i)
 
 
 def write_video(image_list, save_path, fps=20.0):

@@ -279,6 +279,22 @@ class FaceReconModel(BaseModel):
         pred_mask, _, pred_face = self.renderer.render_uv_texture(face_vertex, self.facemodel_front.face_buf,
                                                                      self.bfm_UVs.clone(), face_color_map)
 
+        # Bernardo
+        _, _, _, vertex_ids_pixels_map, pixel_coords_by_vertex_ids = self.renderer.get_per_pixel_vertex_ID_map(face_vertex, self.facemodel_front.face_buf, self.bfm_UVs.clone(), face_color_map)
+        # print('vertex_ids_map:', vertex_ids_map)
+        # print('vertex_ids_map.shape:', vertex_ids_map.shape)
+        # tgt_pixel = np.array([112, 106])   # nose tip
+        # tgt_pixel = np.array([127, 76])    # left eye
+        # tgt_pixel = np.array([110, 110])
+        # tgt_pixel = np.array([120, 90])
+        # print('tgt_pixel:', tgt_pixel)
+        # print('vertex_ids_pixels_map:', vertex_ids_pixels_map[0,tgt_pixel[1],tgt_pixel[0]])
+        # print('--------------')
+        # tgt_3dvect_idx = vertex_ids_pixels_map[0,tgt_pixel[1],tgt_pixel[0]]
+        # print('tgt_3dvect_idx:', tgt_3dvect_idx)
+        # print('pixel_coords_by_vertex_ids:', pixel_coords_by_vertex_ids[tgt_3dvect_idx])
+        # raise Exception()
+
         input_img_numpy = 255. * (self.input_img).detach().cpu().permute(0, 2, 3, 1).numpy()
         input_img_numpy = np.squeeze(input_img_numpy)
         output_vis = pred_face * pred_mask + (1 - pred_mask) * self.input_img
@@ -336,6 +352,10 @@ class FaceReconModel(BaseModel):
         output['tex_valid_mask'] = valid_mask
 
         output['de_retouched_albedo_map'] = de_retouched_face_albedo_map.detach()  # [B, 3, h, w]
+
+        # Bernardo
+        output['vertex_ids_pixels_map']      = vertex_ids_pixels_map.detach().cpu().numpy()
+        output['pixel_coords_by_vertex_ids'] = pixel_coords_by_vertex_ids
 
         return output
 
