@@ -423,8 +423,8 @@ class Reconstructor():
 
         output = self.model.predict_results_base()  # run inference
 
-        output['scale']        = scale
-        output['landmarks']    = landmarks
+        output['scale_original_face']        = scale
+        output['landmarks_original_face']    = landmarks/scale
         output['lm_tensor']    = lm_tensor
         output['lm_hd_tensor'] = lm_hd_tensor
 
@@ -483,7 +483,7 @@ class Reconstructor():
 
                 # save gt lms
                 gt_lm = output['gt_lm'].detach().cpu().numpy()  # (1, 68, 2)
-                np.save(os.path.join(out_dir, img_name + '_lmks'), gt_lm)
+                np.save(os.path.join(out_dir, img_name + '_lmks_input_face'), gt_lm)
 
                 # save face mask
                 face_mask = (output['face_mask'][0, 0] * 255.0).detach().cpu().numpy()
@@ -503,9 +503,11 @@ class Reconstructor():
                 save_object_to_disk(os.path.join(out_dir, img_name + '_pixel_coords_by_vertex_ids.pkl'), output['pixel_coords_by_vertex_ids'])
 
                 # Bernardo
-                np.save(os.path.join(out_dir, img_name + '_scale'), output['scale'])
-                np.save(os.path.join(out_dir, img_name + '_landmarks'), output['landmarks'])
+                np.save(os.path.join(out_dir, img_name + '_scale_original_face'), output['scale_original_face'])
+                np.save(os.path.join(out_dir, img_name + '_lmks_original_face'), output['landmarks_original_face'])
                 
+                # Bernardo
+                np.save(os.path.join(out_dir, img_name + '_lmks_input_face_hd'), lm_hd_tensor.detach().cpu().numpy())
 
                 # print('save results', time.time() - t1)
 
