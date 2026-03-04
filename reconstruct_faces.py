@@ -150,7 +150,7 @@ def run_hrn(args):
         print('args.output_root:', args.output_root)
         print('sub_dirs:', sub_dirs)
         print('save_name:', save_name)
-        out_dir = os.path.join(args.output_root, sub_dirs, save_name)
+        out_dir = os.path.join(args.output_root, os.path.basename(args.input_root), sub_dirs, save_name)
         print('out_dir:', out_dir)
         os.makedirs(out_dir, exist_ok=True)
         img = cv2.imread(name)
