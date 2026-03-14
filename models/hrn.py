@@ -572,7 +572,9 @@ class Reconstructor():
 
             # save coefficients
             coeffs = output['coeffs'].detach().cpu().numpy()  # (1, 257)
-            np.save(os.path.join(out_dir, img_name + '_coeffs'), coeffs)
+            path_file_coeffs = os.path.join(out_dir, img_name + '_coeffs.npy')
+            print(f"Saving coeffs \'{path_file_coeffs}\'")
+            np.save(path_file_coeffs, coeffs)
 
         return output
 
